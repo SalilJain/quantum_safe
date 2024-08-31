@@ -13,6 +13,8 @@ RUN ln -s $BUILD_DIR/lib64 $BUILD_DIR/lib
 
 # Step 2. Install OpenSSL
 WORKDIR $WORKSPACE
+COPY *proxy.crt /usr/local/share/ca-certificates/proxy.crt
+RUN chmod 644 /usr/local/share/ca-certificates/proxy.crt && update-ca-certificates; exit 0
 RUN git clone https://github.com/openssl/openssl.git
 WORKDIR openssl
 # Directory given with --prefix MUST be absolute hence quantumsafe created at root
@@ -95,10 +97,11 @@ RUN make -j $(nproc) install
 
 # Step 3. Create self-signed keys and certificates using quantum-safe algorithms (on Apache HTTPD server)
 WORKDIR $WORKSPACE
-RUN $BUILD_DIR/bin/openssl req -x509 -new -keyout CA.key -out CA.crt -nodes -subj "/CN=oqstest CA" -days 365 -config $BUILD_DIR/ssl/openssl.cnf
+# ADD CA.crt $WORKSPACE/CA.crt
+RUN $BUILD_DIR/bin/openssl req -addext basicConstraints=critical,CA:TRUE -x509 -new -keyout CA.key -out CA.crt -nodes -subj "/CN=oqstest CA" -days 365 -config $BUILD_DIR/ssl/openssl.cnf
 
-RUN $BUILD_DIR/bin/openssl req -new -keyout server.key -out server.csr -nodes -subj "/CN=localhost" -config $BUILD_DIR/ssl/openssl.cnf
-RUN $BUILD_DIR/bin/openssl x509 -req -in server.csr -out server.crt -CA CA.crt -CAkey CA.key -CAcreateserial -days 365
+RUN $BUILD_DIR/bin/openssl req -addext subjectAltName=DNS:localhost -new -keyout server.key -out server.csr -nodes -subj "/CN=localhost" -config $BUILD_DIR/ssl/openssl.cnf
+RUN $BUILD_DIR/bin/openssl x509 -req -copy_extensions copy -in server.csr -out server.crt -CA CA.crt -CAkey CA.key -CAcreateserial -days 365
 RUN cat server.crt > qsc-ca-chain.crt
 RUN cat CA.crt >> qsc-ca-chain.crt
-CMD $BUILD_DIR/bin/openssl s_server -cert $WORKSPACE/server.crt -key $WORKSPACE/server.key -www -tls1_3 -CAfile $WORKSPACE/CA.crt -curves kyber768:x25519_kyber768
+CMD $BUILD_DIR/bin/openssl s_server -cert $WORKSPACE/server.crt -key $WORKSPACE/server.key -www -tls1_3 -CAfile $WORKSPACE/CA.crt -curves kyber768:x25519_kyber768 -trace
